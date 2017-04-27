@@ -19,7 +19,6 @@ void ParticleFilter::init(double x, double y, double theta, double std[]) {
 	// NOTE: Consult particle_filter.h for more information about this method (and others in this file).
 	num_particles=100;
 
-	std::default_random_engine gen;
 	double std_x, std_y, std_theta;
 
 	std_x = std[0];
@@ -29,6 +28,7 @@ void ParticleFilter::init(double x, double y, double theta, double std[]) {
 	std::normal_distribution<double> dist_x(x, std_x);
 	std::normal_distribution<double> dist_y(y, std_y);
 	std::normal_distribution<double> dist_psi(theta, std_theta);
+	weights.resize(num_particles);
 
 	for (int i = 0; i < num_particles; ++i) {
 		double sample_x, sample_y, sample_theta;
@@ -38,15 +38,15 @@ void ParticleFilter::init(double x, double y, double theta, double std[]) {
 		sample_theta = dist_psi(gen);
 
 		Particle particle;
-		particle.id=sample_x;
+		particle.id=i;
 		particle.x=sample_x;
-		particle.y=sample_x;
-		particle.theta=1.0;
+		particle.y=sample_y;
+		particle.theta=sample_theta;
+		particle.weight=1.0;
 
 		particles.push_back(particle);
 	}
-
-
+	is_initialized=true;
 }
 
 void ParticleFilter::prediction(double delta_t, double std_pos[], double velocity, double yaw_rate) {
@@ -55,6 +55,40 @@ void ParticleFilter::prediction(double delta_t, double std_pos[], double velocit
 	//  http://en.cppreference.com/w/cpp/numeric/random/normal_distribution
 	//  http://www.cplusplus.com/reference/random/default_random_engine/
 
+    double std_x, std_y, std_theta;
+    std_x = std[0];
+    std_y =std[1];
+    std_theta = std[2];
+
+    for (int i = 0; i < num_particles; ++i) {
+        double sample_x, sample_y, sample_theta;
+        double x, y, theta;
+
+        x = particles.at(i).x;
+        y = particles.at(i).y;
+        theta = particles.at(i).theta;
+
+        if(yaw_rate==0.0){
+            x = x + velocity*cos(theta)*delta_t;
+            y = y + velocity*sin(theta)*delta_t;
+        }else{
+            x = x + velocity/yaw_rate*(sin(theta+yaw_rate*delta_t)-sin(theta));
+            y = y + velocity/yaw_rate*(cos(theta)-cos(theta+yaw_rate*delta_t));
+            theta = theta+yaw_rate*delta_t;
+        }
+
+        std::normal_distribution<double> dist_x(x, std_x);
+        std::normal_distribution<double> dist_y(y, std_y);
+        std::normal_distribution<double> dist_psi(theta, std_theta);
+
+        sample_x = x + dist_x(gen)*delta_t;
+        sample_y = y + dist_y(gen)*delta_t;
+        sample_theta = theta + dist_psi(gen)*delta_t;
+
+        particles.at(i).x = sample_x;
+        particles.at(i).y = sample_y;
+        particles.at(i).theta = sample_theta;
+    }
 }
 
 void ParticleFilter::dataAssociation(std::vector<LandmarkObs> predicted, std::vector<LandmarkObs>& observations) {
