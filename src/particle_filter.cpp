@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <iostream>
 #include <numeric>
+#include <unordered_map>
 
 #include "particle_filter.h"
 
@@ -17,7 +18,7 @@ void ParticleFilter::init(double x, double y, double theta, double std[]) {
 	//   x, y, theta and their uncertainties from GPS) and all weights to 1. 
 	// Add random Gaussian noise to each particle.
 	// NOTE: Consult particle_filter.h for more information about this method (and others in this file).
-	num_particles=100;
+	num_particles=1000;
 
 	double std_x, std_y, std_theta;
 
@@ -43,6 +44,7 @@ void ParticleFilter::init(double x, double y, double theta, double std[]) {
 		particle.y=sample_y;
 		particle.theta=sample_theta;
 		particle.weight=1.0;
+        weights.push_back(particle.weight);
 
 		particles.push_back(particle);
 	}
@@ -56,9 +58,9 @@ void ParticleFilter::prediction(double delta_t, double std_pos[], double velocit
 	//  http://www.cplusplus.com/reference/random/default_random_engine/
 
     double std_x, std_y, std_theta;
-    std_x = std[0];
-    std_y =std[1];
-    std_theta = std[2];
+    std_x = std_pos[0];
+    std_y =std_pos[1];
+    std_theta = std_pos[2];
 
     for (int i = 0; i < num_particles; ++i) {
         double x, y, theta;
@@ -95,7 +97,16 @@ void ParticleFilter::dataAssociation(std::vector<LandmarkObs> predicted, std::ve
 	//   observed measurement to this particular landmark.
 	// NOTE: this method will NOT be called by the grading code. But you will probably find it useful to 
 	//   implement this method and use it as a helper during the updateWeights phase.
-
+    for(LandmarkObs& obs:observations){
+        double min_distance = std::numeric_limits<double>::max();
+        for (LandmarkObs& predict:predicted){
+            double distance = dist(obs.x,obs.y,predict.x,predict.y);
+            if(distance<min_distance){
+                min_distance=distance;
+                obs.id=predict.id;
+            }
+        }
+    }
 }
 
 void ParticleFilter::updateWeights(double sensor_range, double std_landmark[], 
@@ -111,6 +122,76 @@ void ParticleFilter::updateWeights(double sensor_range, double std_landmark[],
 	//   3.33. Note that you'll need to switch the minus sign in that equation to a plus to account 
 	//   for the fact that the map's y-axis actually points downwards.)
 	//   http://planning.cs.uiuc.edu/node99.html
+
+    double sigma_x, sigma_y, sigma_x_2, sigma_y_2, sigma_xy;
+    sigma_x = std_landmark[0];
+    sigma_y = std_landmark[1];
+    sigma_x_2 = pow(sigma_x, 2);
+    sigma_y_2 = pow(sigma_y, 2);
+    sigma_xy = 2*M_PI*sigma_x*sigma_y;
+
+    // For each particles
+
+    for (int i =0; i<particles.size();i++){
+        Particle particle = particles[i];
+        double x = particle.x;
+        double y = particle.y;
+        double theta = particle.theta;
+
+        std::vector<LandmarkObs> predicted;
+        std::unordered_map<int, LandmarkObs> pred_map;
+        for(Map::single_landmark_s landmark : map_landmarks.landmark_list){
+            if(dist(landmark.x_f,landmark.y_f,x,y)<sensor_range){
+                LandmarkObs pred;
+                pred.x =landmark.x_f;
+                pred.y=landmark.y_f;
+                pred.id = landmark.id_i;
+                predicted.push_back(pred);
+                pred_map[pred.id] = pred;
+            }
+        }
+
+        // Transfrom observation into Map coordinates
+        std::vector<LandmarkObs> trasformedObs;
+        for (LandmarkObs obs : observations){
+            double x_new;
+            double y_new;
+
+            x_new = x*cos(theta) - y*sin(theta) + x;
+            y_new = x*sin(theta) + y*cos(theta) + y;
+            LandmarkObs trasformedObservation;
+            trasformedObservation.x=x_new;
+            trasformedObservation.y=y_new;
+            trasformedObs.push_back(trasformedObservation);
+        }
+
+        // Do data association for this particular particle
+        dataAssociation(predicted, trasformedObs);
+
+        // Calculate the gaussian probablity
+        std::vector<double> gaussians;
+
+        double total_weights=1
+
+        for(LandmarkObs obs:trasformedObs){
+            LandmarkObs pred =pred_map[obs.id];
+
+            double dx = obs.x-pred.x;
+            double dy = obs.y-pred.y;
+
+            double diff_x_2 = dx*dx;
+            double diff_y_2 = dy*dy;
+
+            double weight = exp(-(diff_x_2/(2*sigma_x_2) + diff_y_2/(2*sigma_y_2)))/(sigma_xy);
+
+            total_weights=total_weights*weight;
+
+        }
+        // Update the weight
+        particle.weight = total_weights;
+        weights[i] = total_weights;
+    }
+
 }
 
 void ParticleFilter::resample() {
